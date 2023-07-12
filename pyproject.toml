@@ -9,9 +9,10 @@ dependencies = [
     "click",
     "tensorflow",
     "keras_cv",
-    "matplotlib"
+    "matplotlib",
+    "fastapi"
 ]
 
 [project.scripts]
-generate-images = "generate_images:main"
+generate-images = "aiimageserving.generate_images:main"
 
