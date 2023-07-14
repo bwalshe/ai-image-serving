@@ -10,7 +10,11 @@ dependencies = [
     "tensorflow",
     "keras_cv",
     "matplotlib",
-    "fastapi"
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "jinja2",
+    "python-multipart"
 ]
 
 [project.scripts]
