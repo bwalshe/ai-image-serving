@@ -2,7 +2,7 @@ import io
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 from aiimageserving.util import set_mem_limit
@@ -35,7 +35,8 @@ sd_runner = StableDiffusionRunner(
     settings.precision
 )
 
-@app.get("/echo")
+
+@app.get("/echo", response_class=PlainTextResponse)
 def echo(msg: str) -> str:
     return msg
 
@@ -45,13 +46,7 @@ async def prompt_form(request: Request):
     return templates.TemplateResponse("prompt.html", {"request": request})
 
 
-@app.post("/prompt",
-          responses={
-              200: {
-                  "content": {"image/png": {}}
-              }
-          },
-          response_class=Response)
+@app.post("/prompt")
 async def prompt(req: Request) -> Response:
     """Take a prompt and use stable diffusion to generate an image.
     This is far from the ideal way of doing this as it locks up the whole web
@@ -67,4 +62,4 @@ async def prompt(req: Request) -> Response:
     with io.BytesIO() as buffer:
         save_images(images, buffer)
         buffer.seek(0)
-        return Response(buffer.read())
+        return Response(content=buffer.read(), media_type="image/png")
