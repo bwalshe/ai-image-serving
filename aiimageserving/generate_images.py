@@ -15,6 +15,26 @@ class Precision(StrEnum):
     MIXED = 'mixed_float16'
 
 
+class StableDiffusionRunner:
+    def __init__(self,
+                 width=511,
+                 height=512,
+                 batch_size=3,
+                 device="CPU:0",
+                 precision: Precision = None
+                 ):
+        self._batch_size = batch_size
+        self._device = device
+        if precision and precision is not Precision.DEFAULT:
+            keras.mixed_precision.set_global_policy(str(precision))  # TODO Does this have to be global?
+        self._model = keras_cv.models.StableDiffusion(
+            img_width=width, img_height=height)
+
+    def run(self, prompt: str):
+        with tf.device(self._device):
+            return self._model.text_to_image(prompt, batch_size=self._batch_size)
+
+
 def save_images(images, filename):
     plt.figure(figsize=(30, 10))
     for i in range(len(images)):
@@ -22,18 +42,6 @@ def save_images(images, filename):
         plt.imshow(images[i])
         plt.axis("off")
     plt.savefig(filename)
-
-
-def run_stable_diffusion(prompt: str, width=512, height=512, batch_size=3,
-                         device="CPU:0", precision: Precision = None):
-    if precision and precision is not Precision.DEFAULT:
-        keras.mixed_precision.set_global_policy(str(precision))
-
-    model = keras_cv.models.StableDiffusion(
-        img_width=width, img_height=height)
-
-    with tf.device(device):
-        return model.text_to_image(prompt, batch_size=batch_size)
 
 
 @click.command()
@@ -50,8 +58,8 @@ def run_stable_diffusion(prompt: str, width=512, height=512, batch_size=3,
 def main(prompt, filename, width, height, batch_size, device, precision, mem):
     if mem:
         set_mem_limit(device, mem)
-    images = run_stable_diffusion(prompt, width, height, batch_size,
-                                  device, Precision[precision])
+    runner = StableDiffusionRunner(width, height, batch_size, device, Precision[precision])
+    images = runner.run(prompt)
     save_images(images, filename)
 
 

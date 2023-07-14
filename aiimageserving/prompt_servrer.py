@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from aiimageserving.util import set_mem_limit
-from aiimageserving.generate_images import run_stable_diffusion, save_images, Precision
+from aiimageserving.generate_images import StableDiffusionRunner, save_images, Precision
 
 
 class Settings(BaseSettings):
@@ -27,6 +27,13 @@ if settings.mem_limit:
 
 templates = Jinja2Templates("aiimageserving/static")
 
+sd_runner = StableDiffusionRunner(
+    settings.width,
+    settings.height,
+    settings.batch_size,
+    settings.device,
+    settings.precision
+)
 
 @app.get("/echo")
 def echo(msg: str) -> str:
@@ -56,12 +63,7 @@ async def prompt(req: Request) -> Response:
     else:
         description = (await req.form())["description"]
 
-    images = run_stable_diffusion(description,
-                                  settings.width,
-                                  settings.height,
-                                  settings.batch_size,
-                                  settings.device,
-                                  settings.precision)
+    images = sd_runner.run(description)
     with io.BytesIO() as buffer:
         save_images(images, buffer)
         buffer.seek(0)
