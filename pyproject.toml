@@ -14,7 +14,8 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic-settings",
     "jinja2",
-    "python-multipart"
+    "python-multipart",
+    "tensorflow_serving_api"
 ]
 
 [project.scripts]

@@ -1,9 +1,12 @@
 from enum import StrEnum
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow_serving.config import model_server_config_pb2
 import keras_cv
 from matplotlib import pyplot as plt
 import click
+from pathlib import Path
+from google.protobuf import text_format
 
 from aiimageserving.util import set_mem_limit
 
@@ -34,12 +37,26 @@ class StableDiffusionRunner:
         with tf.device(self._device):
             return self._model.text_to_image(prompt, batch_size=self._batch_size)
 
-    def export_model(self, model_dir: str) -> None:
+    def export_model(self, local_model_dir: str) -> None:
+        model_dir = Path(local_model_dir)
+        model_dir.mkdir(exist_ok=True, parents=True)
+        sd_config = model_server_config_pb2.ModelServerConfig()
+
+        def add_model(model_name, model):
+            config = sd_config.model_config_list.config.add()
+            config.name = model_name
+            config.base_path = f"/models/{model_name}"
+            config.model_platform = "tensorflow"
+            model.save(model_dir / model_name / "1")
+
         with tf.device(self._device):
-            self._model.text_encoder.save(f"{model_dir}/text_encoder/1")
-            self._model.image_encoder.save(f"{model_dir}/image_encoder/1")
-            self._model.decoder.save(f"{model_dir}/decoder/1")
-            self._model.diffusion_model.save(f"{model_dir}/diffusion_model/1")
+            add_model("text_encoder", self._model.text_encoder)
+            add_model("image_encoder", self._model.image_encoder)
+            add_model("decoder", self._model.decoder)
+            add_model("diffusion_model", self._model.diffusion_model)
+
+        with (model_dir / "models.config").open("w") as config_file:
+            config_file.write(text_format.MessageToString(sd_config))
 
 
 def save_images(images, filename):
