@@ -41,24 +41,24 @@ def echo(msg: str) -> str:
     return msg
 
 
-@app.get("/prompt", response_class=HTMLResponse)
+@app.get("/text-to-image", response_class=HTMLResponse)
 async def prompt_form(request: Request):
     return templates.TemplateResponse("prompt.html", {"request": request})
 
 
-@app.post("/prompt")
-async def prompt(req: Request) -> Response:
+@app.post("/text-to-image")
+async def text_to_image(req: Request) -> Response:
     """Take a prompt and use stable diffusion to generate an image.
     This is far from the ideal way of doing this as it locks up the whole web
     server while this request is being processed. To see this in action, try
     calling the `/echo` endpoint while a prompt is being processed.
     """
     if req.headers['Content-Type'] == 'application/json':
-        description = (await req.json())["description"]
+        description = (await req.json())["prompt"]
     else:
-        description = (await req.form())["description"]
+        description = (await req.form())["prompt"]
 
-    images = sd_runner.run(description)
+    images = sd_runner.text_to_image(description)
     with io.BytesIO() as buffer:
         save_images(images, buffer)
         buffer.seek(0)

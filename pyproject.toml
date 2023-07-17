@@ -18,5 +18,5 @@ dependencies = [
 ]
 
 [project.scripts]
-generate-images = "aiimageserving.generate_images:main"
+generate-images = "aiimageserving.generate_images:cli"
 
