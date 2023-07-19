@@ -8,5 +8,6 @@ if [ ! -d "$MODEL_LOCATION" ]; then
 fi
 
 docker run -t --rm -p 8501:8501 -p 8500:8500 \
-  -v "${MODEL_LOCATION}:/models/" tensorflow/serving \
+  --gpus all \
+  -v "${MODEL_LOCATION}:/models/" tensorflow/serving:latest-gpu \
   --model_config_file=/models/models.config
