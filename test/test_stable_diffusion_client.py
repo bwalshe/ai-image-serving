@@ -20,5 +20,5 @@ def test_generate_image():
     client = StableDiffusionClient()
     encoding = client.encode_prompt("A cute puppy")
     encoding_t = tf.constant(tf.make_ndarray(encoding))
-    result = client.generate_image(encoding_t, num_steps=5, batch_size=1)
-    assert result.shape == (1, 256, 256, 3)
+    result = client.generate_image(encoding_t, num_steps=5, batch_size=2)
+    assert result.shape == (2, 256, 256, 3)

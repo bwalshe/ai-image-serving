@@ -10,4 +10,5 @@ fi
 docker run -t --rm -p 8501:8501 -p 8500:8500 \
   --gpus all \
   -v "${MODEL_LOCATION}:/models/" tensorflow/serving:latest-gpu \
-  --model_config_file=/models/models.config
+  --model_config_file=/models/models.config \
+  --platform_config_file=/models/platform.config

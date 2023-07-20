@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from aiimageserving.util import set_mem_limit
 from aiimageserving.generate_images import StableDiffusionRunner, save_images, Precision
+from aiimageserving.stable_diffusion_client import StableDiffusionClient
 
 
 class Settings(BaseSettings):
@@ -26,15 +27,17 @@ if settings.mem_limit:
     set_mem_limit(settings.device, settings.mem_limit)
 
 templates = Jinja2Templates("aiimageserving/static")
+#
+# sd_runner = StableDiffusionRunner(
+#     settings.width,
+#     settings.height,
+#     settings.batch_size,
+#     settings.device,
+#     settings.precision
+# )
+#
 
-sd_runner = StableDiffusionRunner(
-    settings.width,
-    settings.height,
-    settings.batch_size,
-    settings.device,
-    settings.precision
-)
-
+sd_runner = StableDiffusionClient()
 
 @app.get("/echo", response_class=PlainTextResponse)
 def echo(msg: str) -> str:
@@ -58,7 +61,7 @@ async def text_to_image(req: Request) -> Response:
     else:
         description = (await req.form())["prompt"]
 
-    images = sd_runner.text_to_image(description)
+    images = sd_runner.text_to_image(description, batch_size=settings.batch_size)
     with io.BytesIO() as buffer:
         save_images(images, buffer)
         buffer.seek(0)

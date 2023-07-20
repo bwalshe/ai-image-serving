@@ -88,6 +88,10 @@ class StableDiffusionClient:
         response = self._prediction_service.Predict(req)
         return response.outputs["layer_normalization_24"]
 
+    def text_to_image(self, prompt, batch_size=1, num_steps=50, unconditional_guidance_scalar=7.5):
+        encoded_text = tf.make_ndarray(self.encode_prompt(prompt))
+        return self.generate_image(encoded_text, batch_size, num_steps, unconditional_guidance_scalar)
+
     def generate_image(self, encoded_text, batch_size=1, num_steps=50, unconditional_guidance_scale=7.5):
         encoded_text = tf.cast(encoded_text, tf.float32)
         context = tf.make_tensor_proto(self._expand_tensor(encoded_text, batch_size))
