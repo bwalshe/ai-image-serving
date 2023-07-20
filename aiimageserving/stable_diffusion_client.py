@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_serving.apis import (
     predict_pb2,
+    get_model_metadata_pb2,
     prediction_service_pb2_grpc,
     get_model_status_pb2,
     model_service_pb2_grpc
@@ -13,19 +14,39 @@ from keras_cv.models.stable_diffusion.clip_tokenizer import SimpleTokenizer
 from keras_cv.models.stable_diffusion.constants import _ALPHAS_CUMPROD
 from keras_cv.models.stable_diffusion.constants import _UNCONDITIONAL_TOKENS
 
-MAX_PROMPT_LENGTH = 77
-
 
 class StableDiffusionClient:
-    def __init__(self, img_width, img_height, endpoint="127.0.0.1:8500"):
-        self._img_width = img_width
-        self._img_height = img_height
+    def __init__(self, endpoint="127.0.0.1:8500"):
         self._endpoint = endpoint
         self._channel = grpc.insecure_channel(endpoint)
         self._model_names = ["text_encoder", "image_encoder", "decoder", "diffusion_model"]
         self._tokenizer = None
         self._prediction_service = \
             prediction_service_pb2_grpc.PredictionServiceStub(self._channel)
+        self._init_diffusion_metadata()
+        self._init_text_metadata()
+
+    def _init_diffusion_metadata(self):
+        req = get_model_metadata_pb2.GetModelMetadataRequest()
+        signature_map = get_model_metadata_pb2.SignatureDefMap()
+        req.model_spec.name = "diffusion_model"
+        req.metadata_field.append("signature_def")
+        response = self._prediction_service.GetModelMetadata(req)
+        signature_map.ParseFromString(response.metadata["signature_def"].value)
+        model_inputs = signature_map.signature_def["serving_default"].inputs
+        latent_inputs = model_inputs["input_5"]
+        self._latent_height = latent_inputs.tensor_shape.dim[1].size
+        self._latent_width = latent_inputs.tensor_shape.dim[2].size
+
+    def _init_text_metadata(self):
+        req = get_model_metadata_pb2.GetModelMetadataRequest()
+        signature_map = get_model_metadata_pb2.SignatureDefMap()
+        req.model_spec.name = "text_encoder"
+        req.metadata_field.append("signature_def")
+        response = self._prediction_service.GetModelMetadata(req)
+        signature_map.ParseFromString(response.metadata["signature_def"].value)
+        model_inputs = signature_map.signature_def["serving_default"].inputs
+        self._max_prompt_length = model_inputs["tokens"].tensor_shape.dim[1].size
 
     def check_status(self):
         status_service = model_service_pb2_grpc.ModelServiceStub(self._channel)
@@ -45,18 +66,18 @@ class StableDiffusionClient:
         if self._tokenizer is None:
             self._tokenizer = SimpleTokenizer()
         inputs = self._tokenizer.encode(prompt)
-        if len(inputs) > MAX_PROMPT_LENGTH:
+        if len(inputs) > self._max_prompt_length:
             raise ValueError(
-                f"Prompt is too long (should be <= {MAX_PROMPT_LENGTH} tokens)"
+                f"Prompt is too long (should be <= {self._max_prompt_length} tokens)"
             )
-        phrase = inputs + [49407] * (MAX_PROMPT_LENGTH - len(inputs))
+        phrase = inputs + [49407] * (self._max_prompt_length - len(inputs))
         phrase = tf.convert_to_tensor([phrase], dtype=tf.int32)
         return self._encode_tokens(phrase)
 
     def _encode_tokens(self, phrase):
 
         positions = tf.convert_to_tensor(
-            [list(range(MAX_PROMPT_LENGTH))], dtype=tf.int32
+            [list(range(self._max_prompt_length))], dtype=tf.int32
         )
         req = predict_pb2.PredictRequest()
         req.model_spec.name = "text_encoder"
@@ -67,7 +88,7 @@ class StableDiffusionClient:
         response = self._prediction_service.Predict(req)
         return response.outputs["layer_normalization_24"]
 
-    def generate_image(self, encoded_text, batch_size=1, num_steps=50,  unconditional_guidance_scale=7.5):
+    def generate_image(self, encoded_text, batch_size=1, num_steps=50, unconditional_guidance_scale=7.5):
         encoded_text = tf.cast(encoded_text, tf.float32)
         context = tf.make_tensor_proto(self._expand_tensor(encoded_text, batch_size))
         unconditional_context = tf.make_tensor_proto(tf.repeat(
@@ -76,7 +97,7 @@ class StableDiffusionClient:
         timesteps = tf.range(1, 1000, 1000 // num_steps)
         alphas, alphas_prev = self._get_initial_alphas(timesteps)
         latent = tf.random.normal(
-            (batch_size, self._img_height // 8, self._img_width // 8, 4)  # TODO: Should use service metadata instead of width/height
+            (batch_size, self._latent_height, self._latent_width, 4)
         )
 
         iteration = 0
@@ -100,10 +121,10 @@ class StableDiffusionClient:
 
             a_t, a_prev = alphas[index], alphas_prev[index]
             pred_x0 = (latent_prev - math.sqrt(1 - a_t) * latent) / math.sqrt(
-                 a_t
+                a_t
             )
             latent = (
-                     latent * math.sqrt(1.0 - a_prev) + math.sqrt(a_prev) * pred_x0
+                    latent * math.sqrt(1.0 - a_prev) + math.sqrt(a_prev) * pred_x0
             )
             iteration += 1
 
@@ -112,7 +133,7 @@ class StableDiffusionClient:
         decode_req.model_spec.signature_name = "serving_default"
         decode_req.inputs["input_2"].CopyFrom(tf.make_tensor_proto(latent))
         response = self._prediction_service.Predict(decode_req)
-        decoded =  tf.make_ndarray(response.outputs["padded_conv2d_67"])
+        decoded = tf.make_ndarray(response.outputs["padded_conv2d_67"])
         decoded = ((decoded + 1) / 2) * 255
         return np.clip(decoded, 0, 255).astype("uint8")
 
