@@ -61,7 +61,7 @@ async def text_to_image(req: Request) -> Response:
     else:
         description = (await req.form())["prompt"]
 
-    images = sd_runner.text_to_image(description, batch_size=settings.batch_size)
+    images = await sd_runner.text_to_image(description, batch_size=settings.batch_size)
     with io.BytesIO() as buffer:
         save_images(images, buffer)
         buffer.seek(0)
