@@ -1,13 +1,22 @@
+import asyncio
 import io
+from dataclasses import dataclass
+from hashlib import md5
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Request, Response, HTTPException, status
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aiimageserving.util import set_mem_limit
-from aiimageserving.generate_images import StableDiffusionRunner, save_images, Precision
+from aiimageserving.generate_images import save_images, Precision
 from aiimageserving.stable_diffusion_client import StableDiffusionClient
+
+
+@dataclass
+class Job:
+    prompt: str
+    target: asyncio.Future
 
 
 class Settings(BaseSettings):
@@ -23,21 +32,33 @@ class Settings(BaseSettings):
 settings = Settings()
 app = FastAPI()
 
+text_to_image_results = dict()
+job_queue = asyncio.Queue()
+
 if settings.mem_limit:
     set_mem_limit(settings.device, settings.mem_limit)
 
 templates = Jinja2Templates("aiimageserving/static")
-#
-# sd_runner = StableDiffusionRunner(
-#     settings.width,
-#     settings.height,
-#     settings.batch_size,
-#     settings.device,
-#     settings.precision
-# )
-#
 
 sd_runner = StableDiffusionClient()
+
+
+def submit_job(prompt: str) -> str:
+    job_id = md5(prompt.encode()).hexdigest()
+
+    f = asyncio.get_event_loop().create_future()
+    text_to_image_results[job_id] = f
+    job_queue.put_nowait(Job(prompt, f))
+    return job_id
+
+
+async def worker(queue: asyncio.Queue):
+    while True:
+        job = await queue.get()
+        job.target.set_result(await sd_runner.text_to_image(job.prompt, batch_size=settings.batch_size))
+        queue.task_done()
+
+asyncio.create_task(worker(job_queue))
 
 @app.get("/echo", response_class=PlainTextResponse)
 def echo(msg: str) -> str:
@@ -61,8 +82,24 @@ async def text_to_image(req: Request) -> Response:
     else:
         description = (await req.form())["prompt"]
 
-    images = await sd_runner.text_to_image(description, batch_size=settings.batch_size)
-    with io.BytesIO() as buffer:
-        save_images(images, buffer)
-        buffer.seek(0)
-        return Response(content=buffer.read(), media_type="image/png")
+    job_id = submit_job(description)
+    return RedirectResponse(f"/images/{job_id}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/images/{job_id}")
+def get_images(job_id):
+    if job_id not in text_to_image_results:
+        raise HTTPException(status_code=404)
+    try:
+        images = text_to_image_results[job_id].result()
+        with io.BytesIO() as buffer:
+            save_images(images, buffer)
+            buffer.seek(0)
+            return Response(content=buffer.read(), media_type="image/png")
+    except asyncio.InvalidStateError:
+        return PlainTextResponse("Running")
+
+
+@app.get("/queue-size")
+def show_queue():
+    return job_queue.qsize()
