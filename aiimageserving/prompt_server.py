@@ -97,7 +97,7 @@ def get_images(job_id):
             buffer.seek(0)
             return Response(content=buffer.read(), media_type="image/png")
     except asyncio.InvalidStateError:
-        return PlainTextResponse("Running")
+        return PlainTextResponse(f"Running.  {sd_runner.get_progress()}")
 
 
 @app.get("/queue-size")

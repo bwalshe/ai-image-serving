@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 import math
 import numpy as np
+from typing import Optional
 import tensorflow as tf
 from tensorflow_serving.apis import (
     predict_pb2,
@@ -15,6 +17,12 @@ from keras_cv.models.stable_diffusion.constants import _ALPHAS_CUMPROD
 from keras_cv.models.stable_diffusion.constants import _UNCONDITIONAL_TOKENS
 
 
+@dataclass
+class Progress:
+    current_stage: int
+    total: int
+
+
 class StableDiffusionClient:
     def __init__(self, endpoint="127.0.0.1:8500"):
         self._endpoint = endpoint
@@ -25,6 +33,7 @@ class StableDiffusionClient:
             prediction_service_pb2_grpc.PredictionServiceStub(self._channel)
         self._init_diffusion_metadata()
         self._init_text_metadata()
+        self._progress = None
 
     def _init_diffusion_metadata(self):
         sync_channel = grpc.insecure_channel(self._endpoint)
@@ -66,6 +75,9 @@ class StableDiffusionClient:
             responses[model] = json_format.MessageToDict(v1_status)['state']
         return responses
 
+    def get_progress(self) -> Optional[Progress]:
+        return self._progress
+
     async def encode_prompt(self, prompt):
         if self._tokenizer is None:
             self._tokenizer = SimpleTokenizer()
@@ -97,6 +109,7 @@ class StableDiffusionClient:
         return await self.generate_image(tf.make_ndarray(encoded_text), batch_size, num_steps, unconditional_guidance_scalar)
 
     async def generate_image(self, encoded_text, batch_size=1, num_steps=50, unconditional_guidance_scale=7.5):
+        self._progress = Progress(0, num_steps)
         encoded_text = tf.cast(encoded_text, tf.float32)
         context = tf.make_tensor_proto(self._expand_tensor(encoded_text, batch_size))
         unconditional_context = tf.make_tensor_proto(tf.repeat(
@@ -109,7 +122,8 @@ class StableDiffusionClient:
         )
 
         iteration = 0
-        for index, timestep in list(enumerate(timesteps))[::-1]:
+        for index, timestep in reversed(list(enumerate(timesteps))):
+            self._progress = Progress(num_steps - index, num_steps)
             latent_prev = latent  # Set aside the previous latent vector
             t_emb = tf.make_tensor_proto(self._get_timestep_embedding(timesteps[index], batch_size))
             req = predict_pb2.PredictRequest()
@@ -143,6 +157,7 @@ class StableDiffusionClient:
         response = await self._prediction_service.Predict(decode_req)
         decoded = tf.make_ndarray(response.outputs["padded_conv2d_67"])
         decoded = ((decoded + 1) / 2) * 255
+        self._progress = None
         return np.clip(decoded, 0, 255).astype("uint8")
 
     @staticmethod
